@@ -1,46 +1,9 @@
 from DB import Database
-from utils import serializar, imagen
-
-class Productorepository:
-    @staticmethod
-    def obtener_productos():
-        return Productorepository.consultar()
-    @staticmethod
-    def obtener_producto(id_producto):
-        filas = Productorepository.consultar(id_producto)
-        return filas[0] if filas else None
-    @staticmethod
-    def consultar(id_producto=None):
-        conn = Database().connect()
-        try:
-            with conn.cursor(dictionary=True) as cur:
-                cur.execute('SELECT * FROM productos' + (' WHERE id_producto = %s' if id_producto is not None else ''), (id_producto,) if id_producto is not None else ())
-                return [serializar(r) for r in cur.fetchall()]
-        finally: conn.close()
-    @staticmethod
-    def guardar(datos, id_producto=None):
-        campos = list(datos)
-        valores = [imagen(datos[k]) if k == 'imagen' else datos[k] for k in campos]
-        conn = Database().connect()
-        try:
-            with conn.cursor() as cur:
-                if id_producto is None:
-                    cur.execute(f"INSERT INTO productos ({', '.join(campos)}) VALUES ({', '.join(['%s']*len(campos))})", valores)
-                    id_producto = cur.lastrowid
-                else:
-                    cur.execute(f"UPDATE productos SET {', '.join(k+' = %s' for k in campos)} WHERE id_producto = %s", valores+[id_producto])
-            conn.commit()
-            return id_producto
-        except Exception:
-            conn.rollback()
-            raise
-        finally: conn.close()
-from DB import Database
-from utils import serializar, imagen
+from repository.procedimientos import ejecutar_sp
+from utils import imagen, serializar
 
 
 class Productorepository:
-
     @staticmethod
     def obtener_productos():
         return Productorepository.consultar()
@@ -56,72 +19,56 @@ class Productorepository:
 
         try:
             with conn.cursor(dictionary=True) as cur:
-                sql = """
-                    SELECT id_producto, codigo, descripcion, precio,
-                           existencias, estatus, unidades, imagen, status
-                    FROM productos
-                """
+                if id_producto is None:
+                    filas = ejecutar_sp(cur, "sp_productos_listar")
+                else:
+                    filas = ejecutar_sp(
+                        cur,
+                        "sp_producto_por_id",
+                        (id_producto,)
+                    )
 
-                parametros = ()
-
-                if id_producto is not None:
-                    sql += " WHERE id_producto = %s"
-                    parametros = (id_producto,)
-
-                cur.execute(sql, parametros)
-
-                return [
-                    serializar(fila)
-                    for fila in cur.fetchall()
-                ]
+                return [serializar(fila) for fila in filas]
 
         finally:
             conn.close()
 
     @staticmethod
     def guardar(datos, id_producto=None):
-        # Los campos recibidos ya fueron validados por el servicio.
-        campos = list(datos)
-
-        valores = [
-            imagen(datos[campo])
-            if campo == "imagen"
-            else datos[campo]
-            for campo in campos
-        ]
-
         conn = Database().connect()
 
         try:
-            with conn.cursor() as cur:
+            with conn.cursor(dictionary=True) as cur:
                 if id_producto is None:
-                    columnas = ", ".join(campos)
-                    marcadores = ", ".join(["%s"] * len(campos))
-
-                    sql = f"""
-                        INSERT INTO productos ({columnas})
-                        VALUES ({marcadores})
-                    """
-
-                    cur.execute(sql, valores)
-                    id_producto = cur.lastrowid
+                    parametros = (
+                        datos["codigo"],
+                        datos["descripcion"],
+                        datos["precio"],
+                        datos["existencias"],
+                        datos["estatus"],
+                        datos["unidades"],
+                        imagen(datos.get("imagen")),
+                        datos.get("status", 1)
+                    )
+                    filas = ejecutar_sp(
+                        cur,
+                        "sp_producto_crear",
+                        parametros
+                    )
+                    id_producto = filas[0]["id_producto"]
 
                 else:
-                    asignaciones = ", ".join(
-                        f"{campo} = %s"
-                        for campo in campos
-                    )
+                    for campo, valor in datos.items():
+                        if campo == "imagen":
+                            valor = imagen(valor)
+                        elif campo == "status":
+                            valor = str(valor)
 
-                    sql = f"""
-                        UPDATE productos
-                        SET {asignaciones}
-                        WHERE id_producto = %s
-                    """
-
-                    cur.execute(
-                        sql,
-                        valores + [id_producto]
-                    )
+                        ejecutar_sp(
+                            cur,
+                            "sp_producto_actualizar_campo",
+                            (id_producto, campo, valor)
+                        )
 
             conn.commit()
             return id_producto
@@ -132,4 +79,3 @@ class Productorepository:
 
         finally:
             conn.close()
-            

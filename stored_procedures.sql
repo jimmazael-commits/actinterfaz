@@ -127,6 +127,140 @@ BEGIN
 END$$
 
 
+-- PRODUCTOS
+
+DROP PROCEDURE IF EXISTS sp_productos_listar$$
+CREATE PROCEDURE sp_productos_listar()
+BEGIN
+    SELECT id_producto, codigo, descripcion, precio,
+           existencias, estatus, unidades, imagen, status
+    FROM productos;
+END$$
+
+
+DROP PROCEDURE IF EXISTS sp_producto_por_id$$
+CREATE PROCEDURE sp_producto_por_id(
+    IN p_id_producto INT
+)
+BEGIN
+    SELECT id_producto, codigo, descripcion, precio,
+           existencias, estatus, unidades, imagen, status
+    FROM productos
+    WHERE id_producto = p_id_producto;
+END$$
+
+
+DROP PROCEDURE IF EXISTS sp_producto_crear$$
+CREATE PROCEDURE sp_producto_crear(
+    IN p_codigo VARCHAR(50),
+    IN p_descripcion VARCHAR(255),
+    IN p_precio DECIMAL(10,2),
+    IN p_existencias INT,
+    IN p_estatus VARCHAR(20),
+    IN p_unidades VARCHAR(20),
+    IN p_imagen BLOB,
+    IN p_status TINYINT UNSIGNED
+)
+BEGIN
+    IF p_status IS NULL OR p_status NOT IN (0, 1) THEN
+        SIGNAL SQLSTATE '45000'
+        SET MESSAGE_TEXT = 'status debe ser 0 o 1';
+    END IF;
+
+    INSERT INTO productos (
+        codigo, descripcion, precio, existencias,
+        estatus, unidades, imagen, status
+    )
+    VALUES (
+        p_codigo, p_descripcion, p_precio, p_existencias,
+        p_estatus, p_unidades, p_imagen, p_status
+    );
+
+    SELECT LAST_INSERT_ID() AS id_producto;
+END$$
+
+
+DROP PROCEDURE IF EXISTS sp_producto_actualizar_campo$$
+CREATE PROCEDURE sp_producto_actualizar_campo(
+    IN p_id_producto INT,
+    IN p_campo VARCHAR(50),
+    IN p_valor BLOB
+)
+BEGIN
+    CASE p_campo
+        WHEN 'codigo' THEN
+            UPDATE productos SET codigo = p_valor
+            WHERE id_producto = p_id_producto;
+
+        WHEN 'descripcion' THEN
+            UPDATE productos SET descripcion = p_valor
+            WHERE id_producto = p_id_producto;
+
+        WHEN 'precio' THEN
+            UPDATE productos SET precio = CAST(p_valor AS DECIMAL(10,2))
+            WHERE id_producto = p_id_producto;
+
+        WHEN 'existencias' THEN
+            UPDATE productos SET existencias = CAST(p_valor AS SIGNED)
+            WHERE id_producto = p_id_producto;
+
+        WHEN 'estatus' THEN
+            UPDATE productos SET estatus = p_valor
+            WHERE id_producto = p_id_producto;
+
+        WHEN 'unidades' THEN
+            UPDATE productos SET unidades = p_valor
+            WHERE id_producto = p_id_producto;
+
+        WHEN 'imagen' THEN
+            UPDATE productos SET imagen = p_valor
+            WHERE id_producto = p_id_producto;
+
+        WHEN 'status' THEN
+            IF p_valor IS NULL
+               OR CAST(p_valor AS CHAR) NOT IN ('0', '1') THEN
+                SIGNAL SQLSTATE '45000'
+                SET MESSAGE_TEXT = 'status debe ser 0 o 1';
+            END IF;
+
+            UPDATE productos
+            SET status = CAST(p_valor AS UNSIGNED)
+            WHERE id_producto = p_id_producto;
+
+        ELSE
+            SIGNAL SQLSTATE '45000'
+            SET MESSAGE_TEXT = 'Campo de producto no permitido';
+    END CASE;
+END$$
+
+
+-- REPORTES
+
+DROP PROCEDURE IF EXISTS sp_reporte_ventas_por_caja$$
+CREATE PROCEDURE sp_reporte_ventas_por_caja()
+BEGIN
+    SELECT c.numero_caja, SUM(v.total) AS total_ventas,
+           COUNT(v.id_venta) AS cantidad_tickets
+    FROM ventas v
+    INNER JOIN cajas c ON c.id_caja = v.id_caja
+    GROUP BY c.numero_caja
+    ORDER BY c.numero_caja;
+END$$
+
+
+DROP PROCEDURE IF EXISTS sp_reporte_ventas_por_producto$$
+CREATE PROCEDURE sp_reporte_ventas_por_producto()
+BEGIN
+    SELECT p.id_producto, p.descripcion,
+           SUM(d.cantidad) AS cantidad_vendida,
+           SUM(d.importe) AS total_generado
+    FROM detalle_venta d
+    INNER JOIN productos p ON p.id_producto = d.id_producto
+    GROUP BY p.id_producto, p.descripcion
+    ORDER BY total_generado DESC;
+END$$
+
+
 -- VENTAS
 
 DROP PROCEDURE IF EXISTS sp_venta_validar_usuario$$
